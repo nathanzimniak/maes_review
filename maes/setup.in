@@ -1,0 +1,29 @@
+# Indice d'éjection.
+n_xi   = 10
+xi_min = 1.0e-5
+xi_max = 1.0
+
+# Magnétisation.
+n_mu   = 10
+mu_min = 0.3
+mu_max = 3.0
+
+# Courant électrique toroidal.
+n_p   = 10
+p_min = 0.5
+p_max = 4.0
+
+# Rapport d'aspect.
+ep = 0.1
+
+# Diffusivité magnétique poloidale.
+alpham = 1.0
+
+# Anisotropie de diffusivité magnétique.
+chim = 1.0
+
+# Nombre de Prandtl magnétique.
+Pm = 1.0
+
+# Pression magnétique turbulente.
+alphap = 0.0

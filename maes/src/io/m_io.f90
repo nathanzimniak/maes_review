@@ -11,9 +11,140 @@ module m_io
 
     implicit none
     private
-    public :: generate_id, create_file, write_solutions, write_result_hdf5
+    public :: generate_id, create_file, write_solutions, write_result_hdf5, read_setup
 
 contains
+
+    !----------------------------------------------------------------------------------------------
+    !> Lit le fichier de configuration du balayage paramétrique.
+    !>
+    !>
+    !> @param[in]  filename    Nom du fichier de configuration.
+    !> @param[out] xi_list     Liste des valeurs de xi.
+    !> @param[out] mu_list     Liste des valeurs de mu.
+    !> @param[out] p_list      Liste des valeurs de p.
+    !> @param[out] ep_list     Liste des valeurs de ep.
+    !> @param[out] alpham_list Liste des valeurs de alpham.
+    !> @param[out] chim_list   Liste des valeurs de chim.
+    !> @param[out] Pm_list     Liste des valeurs de Pm.
+    !> @param[out] alphap_list Liste des valeurs de alphap.
+    !----------------------------------------------------------------------------------------------
+    subroutine read_setup(filename, xi_list, mu_list, p_list, ep_list, alpham_list, chim_list, Pm_list, alphap_list)
+        character(*), intent(in) :: filename
+        real(dp), allocatable, intent(out) :: xi_list(:)
+        real(dp), allocatable, intent(out) :: mu_list(:)
+        real(dp), allocatable, intent(out) :: p_list(:)
+        real(dp), allocatable, intent(out) :: ep_list(:)
+        real(dp), allocatable, intent(out) :: alpham_list(:)
+        real(dp), allocatable, intent(out) :: chim_list(:)
+        real(dp), allocatable, intent(out) :: Pm_list(:)
+        real(dp), allocatable, intent(out) :: alphap_list(:)
+
+        integer(ip) :: n_xi, n_mu, n_p
+        integer(ip) :: i
+        real(dp) :: xi_min, xi_max
+        real(dp) :: mu_min, mu_max
+        real(dp) :: p_min, p_max
+
+        character(len=256) :: line, key, value
+        integer :: unit, ios, pos, j, n_values
+
+        ! Ouverture du fichier de configuration en lecture.
+        open(newunit=unit, file=filename, status='old', action='read', iostat=ios)
+        if (ios /= 0) error stop "Erreur : impossible d'ouvrir le fichier setup."
+
+        ! Lecture du fichier ligne par ligne.
+        do
+            read(unit, '(A)', iostat=ios) line
+            if (ios /= 0) exit
+
+            ! Suppression des espaces initiaux.
+            line = adjustl(line)
+
+            ! Ignorer les lignes vides et les commentaires.
+            if (len_trim(line) == 0) cycle
+            if (line(1:1) == "#") cycle
+
+            ! Recherche du séparateur clé/valeur.
+            pos = index(line, "=")
+            if (pos == 0) cycle
+
+            ! Extraction de la clé et de la valeur associée
+            key   = adjustl(trim(line(:pos-1)))
+            value = adjustl(trim(line(pos+1:)))
+
+            ! Lecture de la valeur selon la clé rencontrée.
+            select case (trim(key))
+            case ("n_xi"); read(value, *) n_xi
+            case ("n_mu"); read(value, *) n_mu
+            case ("n_p"); read(value, *) n_p
+            case ("xi_min"); read(value, *) xi_min
+            case ("xi_max"); read(value, *) xi_max
+            case ("mu_min"); read(value, *) mu_min
+            case ("mu_max"); read(value, *) mu_max
+            case ("p_min"); read(value, *) p_min
+            case ("p_max"); read(value, *) p_max
+            case ("ep")
+                n_values = 1
+                do j = 1, len_trim(value)
+                    if (value(j:j) == ",") n_values = n_values + 1
+                end do
+                allocate(ep_list(n_values))
+                read(value, *) ep_list
+            case ("alpham")
+                n_values = 1
+                do j = 1, len_trim(value)
+                    if (value(j:j) == ",") n_values = n_values + 1
+                end do
+                allocate(alpham_list(n_values))
+                read(value, *) alpham_list
+            case ("chim")
+                n_values = 1
+                do j = 1, len_trim(value)
+                    if (value(j:j) == ",") n_values = n_values + 1
+                end do
+                allocate(chim_list(n_values))
+                read(value, *) chim_list
+            case ("Pm")
+                n_values = 1
+                do j = 1, len_trim(value)
+                    if (value(j:j) == ",") n_values = n_values + 1
+                end do
+                allocate(Pm_list(n_values))
+                read(value, *) Pm_list
+            case ("alphap")
+                n_values = 1
+                do j = 1, len_trim(value)
+                    if (value(j:j) == ",") n_values = n_values + 1
+                end do
+                allocate(alphap_list(n_values))
+                read(value, *) alphap_list
+            case default
+                error stop "Erreur : clé inconnue dans le fichier setup."
+            end select
+        end do
+
+        close(unit)
+    
+        ! Allocation mémoire des listes générées à partir des bornes lues.
+        allocate(xi_list(n_xi))
+        allocate(mu_list(n_mu))
+        allocate(p_list(n_p))
+
+        ! Construction des listes définissant la grille explorée.
+        do i = 1, n_xi
+            xi_list(i) = 10.0_dp**(log10(xi_min) + (log10(xi_max) - log10(xi_min))*real(i-1, dp)/real(n_xi-1, dp))
+            xi_list(i) = real(nint(xi_list(i)*1.0e6_dp), dp)/1.0e6_dp
+        end do
+        do i = 1, n_mu
+            mu_list(i) = 10.0_dp**(log10(mu_min) + (log10(mu_max) - log10(mu_min))*real(i-1, dp)/real(n_mu-1, dp))
+            mu_list(i) = real(nint(mu_list(i)*1.0e6_dp), dp)/1.0e6_dp
+        end do
+        do i = 1, n_p
+            p_list(i) = p_min + (p_max - p_min)*real(i-1, dp)/real(n_p-1, dp)
+            p_list(i) = real(nint(p_list(i)*1.0e3_dp), dp)/1.0e3_dp
+        end do
+    end subroutine read_setup
 
     !----------------------------------------------------------------------------------------------
     !> Écrit le résumé du balayage paramétrique dans un fichier HDF5.
@@ -33,6 +164,7 @@ contains
 
         integer(ip) :: i
         integer(ip) :: num_points
+        integer(ip) :: n_xi, n_mu, n_p
         integer :: h5err
         integer(HID_T) :: id_file, id_dspace, id_dset, id_plist, id_aspace, id_attr, id_atype
         integer(HSIZE_T) :: strlen_h5
@@ -41,6 +173,8 @@ contains
         integer(HSIZE_T), dimension(2) :: chunk_dims
         real(dp), allocatable :: buffer(:,:)
         character(len=256) :: column_names
+        character(len=4096) :: setup_summary
+        character(len=512) :: line
 
         ! Nombre total de points dans la grille paramétrique.
         num_points = size(input_params_grid, kind=ip)
@@ -62,6 +196,53 @@ contains
             buffer(i,10) = real(crit_states(i), dp)
             buffer(i,11) = real(error_states(i), dp)
         end do
+
+        ! Reconstruction des nombres de valeurs distinctes.
+        n_xi = count_unique_real(buffer(:,1))
+        n_mu = count_unique_real(buffer(:,7))
+        n_p  = count_unique_real(buffer(:,8))
+
+        ! Construction du résumé textuel du setup.
+        setup_summary = ""
+
+        write(line,'(A)') "========================================================"
+        setup_summary = trim(setup_summary)//trim(line)//new_line('a')
+
+        write(line,'(A,I0)') "Nombre total de points explorés : ", num_points
+        setup_summary = trim(setup_summary)//trim(line)//new_line('a')
+
+        write(line,'(A)') "--------------------------------------------------------"
+        setup_summary = trim(setup_summary)//trim(line)//new_line('a')
+
+        write(line,'(A,F0.6,A,F0.6,A,I0,A)') &
+            "xi     ∈ [", minval(buffer(:,1)), ", ", maxval(buffer(:,1)), "] ; ", n_xi, " points en échelle log"
+        setup_summary = trim(setup_summary)//trim(line)//new_line('a')
+
+        write(line,'(A,F0.6,A,F0.6,A,I0,A)') &
+            "mu     ∈ [", minval(buffer(:,7)), ", ", maxval(buffer(:,7)), "] ; ", n_mu, " points en échelle log"
+        setup_summary = trim(setup_summary)//trim(line)//new_line('a')
+
+        write(line,'(A,F0.3,A,F0.3,A,I0,A)') &
+            "p      ∈ [", minval(buffer(:,8)), ", ", maxval(buffer(:,8)), "] ; ", n_p, " points en échelle lin"
+        setup_summary = trim(setup_summary)//trim(line)//new_line('a')
+
+        write(line,'(A,A)') "ep     = ", trim(real_list_to_string(unique_real(buffer(:,2)), 3))
+        setup_summary = trim(setup_summary)//trim(line)//new_line('a')
+
+        write(line,'(A,A)') "alpham = ", trim(real_list_to_string(unique_real(buffer(:,3)), 1))
+        setup_summary = trim(setup_summary)//trim(line)//new_line('a')
+            
+        write(line,'(A,A)') "chim   = ", trim(real_list_to_string(unique_real(buffer(:,4)), 1))
+        setup_summary = trim(setup_summary)//trim(line)//new_line('a')
+            
+        write(line,'(A,A)') "Pm     = ", trim(real_list_to_string(unique_real(buffer(:,5)), 1))
+        setup_summary = trim(setup_summary)//trim(line)//new_line('a')
+            
+        write(line,'(A,A)') "alphap = ", trim(real_list_to_string(unique_real(buffer(:,6)), 1))
+        setup_summary = trim(setup_summary)//trim(line)//new_line('a')
+
+        write(line,'(A)') "========================================================"
+        setup_summary = trim(setup_summary)//trim(line)
 
         ! Initialisation de la bibliothèque HDF5.
         call h5open_f(h5err)
@@ -97,17 +278,27 @@ contains
         adims(1) = 1_HSIZE_T
         call h5screate_simple_f(1, adims, id_aspace, h5err)
 
-        ! Création du type chaîne de caractères adapté à l'attribut.
+        ! Création et écriture de l'attribut "column_names".
         call h5tcopy_f(H5T_FORTRAN_S1, id_atype, h5err)
         strlen_h5 = int(len_trim(column_names), kind=HSIZE_T)
         call h5tset_size_f(id_atype, strlen_h5, h5err)
         call h5tset_strpad_f(id_atype, H5T_STR_NULLTERM_F, h5err)
 
-        ! Création et écriture de l'attribut "column_names".
         call h5acreate_f(id_dset, "column_names", id_atype, id_aspace, id_attr, h5err)
         call h5awrite_f(id_attr, id_atype, column_names, adims, h5err)
 
-        ! Fermeture des objets HDF5 associés à l'attribut.
+        call h5aclose_f(id_attr, h5err)
+        call h5tclose_f(id_atype, h5err)
+
+        ! Création et écriture de l'attribut global "setup_summary".
+        call h5tcopy_f(H5T_FORTRAN_S1, id_atype, h5err)
+        strlen_h5 = int(len_trim(setup_summary), kind=HSIZE_T)
+        call h5tset_size_f(id_atype, strlen_h5, h5err)
+        call h5tset_strpad_f(id_atype, H5T_STR_NULLTERM_F, h5err)
+
+        call h5acreate_f(id_file, "setup_summary", id_atype, id_aspace, id_attr, h5err)
+        call h5awrite_f(id_attr, id_atype, setup_summary, adims, h5err)
+
         call h5aclose_f(id_attr, h5err)
         call h5sclose_f(id_aspace, h5err)
         call h5tclose_f(id_atype, h5err)
@@ -245,4 +436,91 @@ contains
         ! Encodage en chaîne.
         write(id, '(I6.6,I5.5)') ix, ie
     end function generate_id
+
+    !----------------------------------------------------------------------------------------------
+    !> Compte le nombre de valeurs réelles distinctes dans un tableau.
+    !----------------------------------------------------------------------------------------------
+    pure function count_unique_real(values) result(n_unique)
+        real(dp), intent(in) :: values(:)
+    
+        integer(ip) :: n_unique
+        integer(ip) :: i, j
+        logical :: found
+    
+        n_unique = 0_ip
+    
+        do i = 1, size(values, kind=ip)
+            found = .false.
+        
+            do j = 1, i - 1_ip
+                if (values(i) == values(j)) then
+                    found = .true.
+                    exit
+                end if
+            end do
+        
+            if (.not. found) n_unique = n_unique + 1_ip
+        end do
+    end function count_unique_real
+    
+    !----------------------------------------------------------------------------------------------
+    !> Extrait les valeurs réelles distinctes d'un tableau en conservant leur ordre d'apparition.
+    !----------------------------------------------------------------------------------------------
+    function unique_real(values) result(unique_values)
+        real(dp), intent(in) :: values(:)
+        real(dp), allocatable :: unique_values(:)
+    
+        integer(ip) :: i, j, n_unique
+        logical :: found
+    
+        n_unique = count_unique_real(values)
+        allocate(unique_values(n_unique))
+    
+        n_unique = 0_ip
+    
+        do i = 1, size(values, kind=ip)
+            found = .false.
+        
+            do j = 1, n_unique
+                if (values(i) == unique_values(j)) then
+                    found = .true.
+                    exit
+                end if
+            end do
+        
+            if (.not. found) then
+                n_unique = n_unique + 1_ip
+                unique_values(n_unique) = values(i)
+            end if
+        end do
+    end function unique_real
+
+    !----------------------------------------------------------------------------------------------
+    !> Convertit une liste de réels en chaîne au format [x, y, z].
+    !----------------------------------------------------------------------------------------------
+    function real_list_to_string(values, decimals) result(str)
+        real(dp), intent(in) :: values(:)
+        integer, intent(in) :: decimals
+        character(len=1024) :: str
+
+        integer(ip) :: i
+        character(len=64) :: fmt
+        character(len=64) :: value_str
+
+        write(fmt,'(A,I0,A)') "(F0.", decimals, ")"
+
+        str = "["
+
+        do i = 1, size(values, kind=ip)
+            write(value_str, fmt) values(i)
+
+            if (i > 1_ip) then
+                str = trim(str)//", "//trim(value_str)
+            else
+                str = trim(str)//trim(value_str)
+            end if
+        end do
+
+        str = trim(str)//"]"
+    end function real_list_to_string
 end module m_io

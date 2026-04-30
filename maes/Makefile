@@ -1,160 +1,170 @@
 # =======================================================
-#  Projet MAES — Compilation du code principal + LSODA
+# CHOIX DU COMPILATEUR
 # =======================================================
 
-# Nom de l’exécutable final à produire
-TARGET = maes
-
-# Répertoires utilisés pour les sources, modules et objets compilés
-SRC_DIR = src
-ODEPACK_DIR = lib/odepack
-OBJ_DIR = build/obj
-MOD_DIR = build/mod
-NUMERICS_DIR = $(SRC_DIR)/numerics
-PHYSICS_DIR = $(SRC_DIR)/physics
-IO_DIR = $(SRC_DIR)/io
-
-# -------------------------------------------------------
-# Options de compilation
-# -------------------------------------------------------
-
-# Définition du compilateur Fortran
 FC = gfortran
 
-# Flags reliés à HDF5
-HDF5_CFLAGS := $(shell h5fc -show | tr ' ' '\n' | grep '^-I')
-HDF5_LFLAGS := $(shell h5fc -show | tr ' ' '\n' | grep '^-L\|^-l')
-HDF5_LIBDIR := $(shell h5fc -show | tr ' ' '\n' | grep '^-L' | head -n1 | sed 's/^-L//')
+# =======================================================
+# ORGANISATION DES DOSSIERS
+# =======================================================
 
-# Options de compilation en mode release (exécution rapide)
+DIR_SRC = src
+DIR_OBJ = build
+DIR_MOD = $(DIR_OBJ)/mod
+DIR_LIB = lib
+DIR_NUMERICS = $(DIR_SRC)/numerics
+DIR_PHYSICS = $(DIR_SRC)/physics
+DIR_IO = $(DIR_SRC)/io
+DIR_ODEPACK = $(DIR_LIB)/odepack
+
+# =======================================================
+# INFORMATIONS GÉNÉRALES SUR LA COMPILATION
+# =======================================================
+
+TARGET = main
+
+# =======================================================
+# DÉTECTION AUTOMATIQUE DES FLAGS MPI
+# =======================================================
+
+SHOW_MPI := $(shell mpif90 --showme:compile) $(shell mpif90 --showme:link)
+CFLAGS_MPI := $(shell printf '%s\n' "$(SHOW_MPI)" | tr ' ' '\n' | grep '^-I')
+LFLAGS_MPI := $(shell printf '%s\n' "$(SHOW_MPI)" | tr ' ' '\n' | grep '^-L')
+LIBS_MPI   := $(shell printf '%s\n' "$(SHOW_MPI)" | tr ' ' '\n' | grep '^-l')
+LIBDIR_MPI := $(shell printf '%s\n' "$(SHOW_MPI)" | tr ' ' '\n' | grep '^-L' | head -n1 | sed 's/^-L//')
+
+# =======================================================
+# DÉTECTION AUTOMATIQUE DES FLAGS HDF5
+# =======================================================
+
+SHOW_HDF5 := $(shell h5fc -show)
+CFLAGS_HDF5 := $(shell printf '%s\n' "$(SHOW_HDF5)" | tr ' ' '\n' | grep '^-I')
+LFLAGS_HDF5 := $(shell printf '%s\n' "$(SHOW_HDF5)" | tr ' ' '\n' | grep '^-L')
+LIBS_HDF5 := $(shell printf '%s\n' "$(SHOW_HDF5)" | tr ' ' '\n' | grep -E '^-l|^/.+\.(a|so|so\.[0-9.]+|dylib)$$')
+LIBDIR_HDF5 := $(shell printf '%s\n' "$(SHOW_HDF5)" | tr ' ' '\n' | grep '^-L' | head -n1 | sed 's/^-L//')
+
+# =======================================================
+# OPTIONS DE COMPILATION
+# =======================================================
+
 FFLAGS = -O3 \
-         -J$(MOD_DIR) -I$(MOD_DIR) \
          -fopenmp \
-         -ffree-line-length-none \
-         -fno-backtrace -ffpe-summary=none \
-         -w \
-         $(HDF5_CFLAGS)
+         -J$(DIR_MOD) \
+         -I$(DIR_MOD) \
+         -I$(DIR_SRC) \
+         -I$(DIR_NUMERICS) \
+         -I$(DIR_PHYSICS) \
+         -I$(DIR_IO) \
+         $(CFLAGS_MPI) \
+         $(CFLAGS_HDF5)
+#         -ffree-line-length-none
 
-## Options de compilation en mode debug (compilation détaillée)
-#FFLAGS = -O0 \
-#         -g -Wall -Wextra -Wconversion -Wimplicit-interface \
-#         -fcheck=all -fbacktrace \
-#         -J$(MOD_DIR) -I$(MOD_DIR) \
-#         -fopenmp \
-#         -ffree-line-length-none \
-#         $(HDF5_CFLAGS)
+FFLAGS_LEGACY = $(FFLAGS) -std=legacy
 
-# Options passées à l’édition de liens (utilisées pour assembler tous les fichiers objets en un exécutable)
 LDFLAGS = -fopenmp \
-          $(HDF5_LFLAGS) \
-          -Wl,-rpath,$(HDF5_LIBDIR)
+          $(LFLAGS_MPI) \
+          $(LFLAGS_HDF5)
 
-# -------------------------------------------------------
-# Liste des fichiers sources à compiler
-# -------------------------------------------------------
+ifneq ($(LIBDIR_MPI),)
+LDFLAGS += -Wl,-rpath,$(LIBDIR_MPI)
+endif
 
-# Modules du cœur scientifique (ordonnés selon leurs dépendances)
-SRC_CORE = \
-  $(NUMERICS_DIR)/m_numerical_init.f90 \
-  $(PHYSICS_DIR)/m_physical_init.f90 \
-  $(IO_DIR)/m_io.f90 \
-  $(PHYSICS_DIR)/m_mhd.f90 \
-  $(NUMERICS_DIR)/m_integrator.f90 \
-  $(PHYSICS_DIR)/m_invariants.f90 \
-  $(PHYSICS_DIR)/m_mach_numbers.f90 \
-  $(PHYSICS_DIR)/m_critical_points.f90 \
-  $(SRC_DIR)/m_mhd_solver.f90 \
-  $(SRC_DIR)/m_solver.f90 \
+ifneq ($(LIBDIR_HDF5),)
+LDFLAGS += -Wl,-rpath,$(LIBDIR_HDF5)
+endif
 
-# Programme principal
-SRC_MAIN = $(SRC_DIR)/main.f90
+# =======================================================
+# LISTE DES FICHIERS SOURCE
+# =======================================================
 
-# Fichiers ODEPACK en Fortran 90 (interface moderne thread-safe de LSODA)
-SRC_ODEPACK_F90 = \
-  $(ODEPACK_DIR)/odepack_common.f90 \
-  $(ODEPACK_DIR)/odepack_interface.f90 \
-  $(ODEPACK_DIR)/odepack_mod.f90
+SRC_ODEPACK = $(DIR_ODEPACK)/odepack_common.f90 \
+              $(DIR_ODEPACK)/odepack_interface.f90 \
+              $(DIR_ODEPACK)/odepack_mod.f90 \
+              $(DIR_ODEPACK)/odepack_sub1.f \
+              $(DIR_ODEPACK)/odepack_sub2.f \
+              $(DIR_ODEPACK)/odepack.f \
+              $(wildcard $(DIR_ODEPACK)/lapack/*.f)
 
-# Fichiers ODEPACK en Fortran 77 (routines originales LSODA)
-SRC_ODEPACK_F = \
-  $(ODEPACK_DIR)/odepack_sub1.f \
-  $(ODEPACK_DIR)/odepack_sub2.f \
-  $(ODEPACK_DIR)/odepack.f
+SRC_MAIN = $(DIR_NUMERICS)/m_numerical_init.f90 \
+           $(DIR_PHYSICS)/m_physical_init.f90 \
+           $(DIR_IO)/m_io.f90 \
+           $(DIR_PHYSICS)/m_mhd.f90 \
+           $(DIR_NUMERICS)/m_integrator.f90 \
+           $(DIR_PHYSICS)/m_invariants.f90 \
+           $(DIR_PHYSICS)/m_mach_numbers.f90 \
+           $(DIR_PHYSICS)/m_critical_points.f90 \
+           $(DIR_SRC)/m_mhd_solver.f90 \
+           $(DIR_SRC)/m_solver.f90 \
+           $(DIR_SRC)/main.f90
 
-# Fichiers LAPACK (toutes les routines mathématiques du sous-dossier lapack/)
-SRC_LAPACK = $(wildcard $(ODEPACK_DIR)/lapack/*.f)
+SRC = $(SRC_ODEPACK) $(SRC_MAIN)
 
-# Regroupement de tous les fichiers sources
-SRC = $(SRC_ODEPACK_F90) $(SRC_ODEPACK_F) $(SRC_LAPACK) $(SRC_CORE) $(SRC_MAIN)
+# =======================================================
+# LISTE DES FICHIERS OBJETS
+# =======================================================
 
-# -------------------------------------------------------
-# Liste des fichiers objets correspondant à chaque source
-# -------------------------------------------------------
+OBJ = $(SRC:%=$(DIR_OBJ)/%.o)
 
-OBJ_CORE        = $(SRC_CORE:$(SRC_DIR)/%.f90=$(OBJ_DIR)/%.o)
-OBJ_MAIN        = $(SRC_MAIN:$(SRC_DIR)/%.f90=$(OBJ_DIR)/%.o)
-OBJ_ODEPACK_F90 = $(SRC_ODEPACK_F90:$(ODEPACK_DIR)/%.f90=$(OBJ_DIR)/%.o)
-OBJ_ODEPACK_F   = $(SRC_ODEPACK_F:$(ODEPACK_DIR)/%.f=$(OBJ_DIR)/%.o)
-OBJ_LAPACK      = $(SRC_LAPACK:$(ODEPACK_DIR)/lapack/%.f=$(OBJ_DIR)/lapack/%.o)
-OBJ             = $(OBJ_CORE) $(OBJ_MAIN) $(OBJ_ODEPACK_F90) $(OBJ_ODEPACK_F) $(OBJ_LAPACK)
+# =======================================================
+# CIBLES UTILITAIRES
+# =======================================================
 
-# -------------------------------------------------------
-# Édition de liens (assemblage des objets en exécutable)
-# -------------------------------------------------------
+.PHONY: all run clean
 
-# Pour construire l’exécutable $(TARGET), il faut que tous les fichiers objets listés dans $(OBJ) existent et soient à jour.
-$(TARGET): $(OBJ)
-	$(FC) $(FFLAGS) $(OBJ) $(LDFLAGS) -o $@
-
-# -------------------------------------------------------
-# Dépendances explicites entre modules Fortran
-# -------------------------------------------------------
-
-# Ces lignes assurent que les modules ODEPACK (.mod) sont compilés avant les fichiers qui en dépendent.
-$(OBJ_DIR)/numerics/m_integrator.o: $(OBJ_DIR)/odepack_mod.o $(OBJ_DIR)/odepack_common.o $(OBJ_DIR)/odepack_interface.o
-$(OBJ_DIR)/odepack_mod.o:  $(OBJ_DIR)/odepack_common.o $(OBJ_DIR)/odepack_interface.o
-$(OBJ_DIR)/odepack_sub1.o: $(OBJ_DIR)/odepack_common.o $(OBJ_DIR)/odepack_interface.o $(OBJ_DIR)/odepack_mod.o
-$(OBJ_DIR)/odepack_sub2.o: $(OBJ_DIR)/odepack_common.o $(OBJ_DIR)/odepack_interface.o $(OBJ_DIR)/odepack_mod.o
-$(OBJ_DIR)/odepack.o:      $(OBJ_DIR)/odepack_common.o $(OBJ_DIR)/odepack_interface.o $(OBJ_DIR)/odepack_mod.o
-
-# -------------------------------------------------------
-# Règles de compilation : comment produire un .o à partir d’un .f90 ou .f
-# -------------------------------------------------------
-
-# Pour compiler un fichier du répertoire src/ (.f90)
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.f90
-	@mkdir -p $(dir $@) $(MOD_DIR)
-	$(FC) $(FFLAGS) -c $< -o $@
-
-# Pour compiler un fichier du répertoire odepack/ (.f90)
-$(OBJ_DIR)/%.o: $(ODEPACK_DIR)/%.f90
-	@mkdir -p $(dir $@) $(MOD_DIR)
-	$(FC) $(FFLAGS) -c $< -o $@
-
-# Pour compiler un fichier du répertoire odepack/ (.f)
-$(OBJ_DIR)/%.o: $(ODEPACK_DIR)/%.f
-	@mkdir -p $(dir $@) $(MOD_DIR)
-	$(FC) $(FFLAGS) -c $< -o $@
-
-# Pour compiler un fichier du sous-dossier odepack/lapack/ (.f)
-$(OBJ_DIR)/lapack/%.o: $(ODEPACK_DIR)/lapack/%.f
-	@mkdir -p $(dir $@) $(MOD_DIR)
-	$(FC) $(FFLAGS) -c $< -o $@
-
-# -------------------------------------------------------
-# Cibles utilitaires
-# -------------------------------------------------------
-
-# Cible principale : compile tout le projet (make)
-.PHONY: all
 all: $(TARGET)
 
-# Cible d’exécution : lance le programme une fois compilé (make run)
-.PHONY: run
 run: $(TARGET)
 	./$(TARGET)
 
-# Cible de nettoyage : supprime les fichiers compilés et l’exécutable (make clean)
-.PHONY: clean
+# =======================================================
+# ÉDITION DE LIENS : FABRIQUER L’EXÉCUTABLE FINAL
+# =======================================================
+
+$(TARGET): $(OBJ)
+	$(FC) $(OBJ) $(LDFLAGS) $(LIBS_HDF5) $(LIBS_MPI) -o $@
+
+# =======================================================
+# DÉPENDANCES EXPLICITES ENTRE MODULES FORTRAN
+# =======================================================
+
+$(DIR_OBJ)/$(DIR_NUMERICS)/m_integrator.f90.o: $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_mod.f90.o \
+                                               $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_common.f90.o \
+                                               $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_interface.f90.o
+
+$(DIR_OBJ)/$(DIR_ODEPACK)/odepack_mod.f90.o: $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_common.f90.o \
+                                             $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_interface.f90.o
+
+$(DIR_OBJ)/$(DIR_ODEPACK)/odepack_sub1.f.o: $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_common.f90.o \
+                                            $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_interface.f90.o \
+                                            $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_mod.f90.o
+
+$(DIR_OBJ)/$(DIR_ODEPACK)/odepack_sub2.f.o: $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_common.f90.o \
+                                            $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_interface.f90.o \
+                                            $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_mod.f90.o
+
+$(DIR_OBJ)/$(DIR_ODEPACK)/odepack.f.o: $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_common.f90.o \
+                                       $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_interface.f90.o \
+                                       $(DIR_OBJ)/$(DIR_ODEPACK)/odepack_mod.f90.o
+
+# =======================================================
+# RÈGLE DE COMPILATION : .f90 --> .o
+# =======================================================
+
+$(DIR_OBJ)/%.f90.o: %.f90
+	@mkdir -p $(dir $@) $(DIR_MOD)
+	$(FC) $(FFLAGS) -c $< -o $@
+
+# =======================================================
+# RÈGLE DE COMPILATION : .f --> .o
+# =======================================================
+
+$(DIR_OBJ)/%.f.o: %.f
+	@mkdir -p $(dir $@) $(DIR_MOD)
+	$(FC) $(FFLAGS_LEGACY) -c $< -o $@
+
+# =======================================================
+# CIBLE DE NETTOYAGE
+# =======================================================
+
 clean:
-	rm -rf $(OBJ_DIR) $(MOD_DIR) $(TARGET)
+	rm -rf $(TARGET) $(DIR_OBJ)
